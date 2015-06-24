@@ -42,6 +42,9 @@ executable main
                      , classy-prelude
                      , lens
                      , linear
+                     , mtl
+                     , MonadRandom
+                     , random-shuffle
                      , wrench
   -- hs-source-dirs:      
   default-language:    Haskell2010
