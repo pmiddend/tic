@@ -10,6 +10,7 @@ import Wrench.FloatType
 import System.Random.Shuffle(shuffleM)
 import Wrench.Event
 import Control.Monad.Random
+import Wrench.Event
 import Wrench.Picture
 import Wrench.MouseButtonMovement
 import ClassyPrelude hiding(head)
@@ -139,6 +140,8 @@ processClick imageSize clickPosition = do
 mainLoop :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
 mainLoop = do
   events <- gpollEvents
+  let positions = events ^.. traverse . _MouseButton . mousePosition
+  when (not . null $ positions) (print positions)
   gupdateTicks 1.0
   viewport <- originRectangle <$> gviewportSize
   mapImage <- fromJust <$> (glookupImageRectangle mapImageId)
