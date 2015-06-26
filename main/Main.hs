@@ -140,18 +140,21 @@ processClick imageSize clickPosition = do
 mainLoop :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
 mainLoop = do
   events <- gpollEvents
-  let positions = events ^.. traverse . _MouseButton . mousePosition
-  when (not . null $ positions) (print positions)
   gupdateTicks 1.0
+  gupdateKeydowns events
   viewport <- originRectangle <$> gviewportSize
   mapImage <- fromJust <$> (glookupImageRectangle mapImageId)
   let
     fitRect = fitMap viewport mapImage
-    positions = events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . to (toImageCoord fitRect) . _Just . singular _head
-  mapM_ (processClick (fitRect ^. rectangleDimensions)) positions
+    positions = events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)
+  when (not . null $ positions) (mapM_ (print) positions)
+  --mapM_ (processClick (fitRect ^. rectangleDimensions)) positions
   let
-    gameStatePicture = undefined
-  grender (pictures [(picturize fitRect),gameStatePicture])
+    --gameStatePicture = undefined
+  --grender (pictures [(picturize fitRect),gameStatePicture])
+  grender (picturize fitRect)
+  mainLoop
+  {-
   gameAction <- determineGameAction
   case gameAction of
     GameContinues -> mainLoop
@@ -167,6 +170,7 @@ mainLoop = do
       gsLocationSequence <~ (chooseLocationSequence =<< use gsCurrentLevel)
       gsTimerInited <~ gcurrentTicks
       mainLoop
+-}
 
 main :: IO ()
 main = do
