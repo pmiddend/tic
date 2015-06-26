@@ -7,6 +7,7 @@ import Wrench.Point
 import Wrench.Platform
 import Wrench.Time
 import Wrench.FloatType
+import Wrench.Color
 import System.Random.Shuffle(shuffleM)
 import Wrench.Event
 import Control.Monad.Random
@@ -153,8 +154,8 @@ mainLoop = do
     lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)) ^? _head
   for_ lastClick (processClick (fitRect ^. rectangleDimensions))
   let
-    gameStatePicture = undefined
-  grender (pictures [(picturize fitRect),gameStatePicture])
+    gameStatePicture = colorsWhite `pictureInColor` (pictureText "hahaha")
+  grender (pictures [gameStatePicture,(picturize fitRect)])
   mainLoop
   gameAction <- determineGameAction
   case gameAction of
@@ -174,7 +175,7 @@ mainLoop = do
 
 main :: IO ()
 main = do
-  runGame "media" "tic 0.1" DynamicWindowSize $ do
+  runGame "media" "tic 0.1" DynamicWindowSize (Just colorsBlack) $ do
     initialLocations <- chooseLocationSequence 0
     currentTicks <- gcurrentTicks
     let
