@@ -11,6 +11,7 @@ import System.Random.Shuffle(shuffleM)
 import Wrench.Event
 import Control.Monad.Random
 import Wrench.Event
+import Data.Foldable(for_)
 import Wrench.Picture
 import Wrench.MouseButtonMovement
 import ClassyPrelude hiding(head)
@@ -25,7 +26,7 @@ import Tic.CoordTransform
 import Tic.Location
 import Wrench.RenderPositionMode
 import Tic.GameState
-import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking)
+import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?))
 import Data.List(tail,head)
 import Linear.V2
 
@@ -115,7 +116,7 @@ determineGameAction = do
   if currentTicks `tickDelta` timerInited > timerDurationForLevel currentLevel
     then do
       currentLocations <- use gsLocationSequence
-      if length currentLocations == 1
+      if null currentLocations
       then do
         currentScore <- use gsScore
         if currentScore < minScoreForLevel currentLevel
@@ -130,11 +131,14 @@ timeLeft = do
   currentTicks <- gcurrentTicks
   return (currentTicks `tickDelta` timerInited)
 
+processClick :: (MonadGame m, MonadState GameState m, Functor m) => V2 FloatType -> Point -> m ()
 processClick imageSize clickPosition = do
   currentLocation <- head <$> use gsLocationSequence
   let dist = pixelDistance (coordinateToPixel (currentLocation ^. locCoordinate) imageSize) clickPosition
   tl <- timeLeft
   gsScore += distanceAndTimeToPoints dist tl
+  gsLocationSequence %= tail
+  gsTimerInited <~ gcurrentTicks
   return ()
 
 mainLoop :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
@@ -146,15 +150,12 @@ mainLoop = do
   mapImage <- fromJust <$> (glookupImageRectangle mapImageId)
   let
     fitRect = fitMap viewport mapImage
-    positions = events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)
-  when (not . null $ positions) (mapM_ (print) positions)
-  --mapM_ (processClick (fitRect ^. rectangleDimensions)) positions
+    lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)) ^? _head
+  for_ lastClick (processClick (fitRect ^. rectangleDimensions))
   let
-    --gameStatePicture = undefined
-  --grender (pictures [(picturize fitRect),gameStatePicture])
-  grender (picturize fitRect)
+    gameStatePicture = undefined
+  grender (pictures [(picturize fitRect),gameStatePicture])
   mainLoop
-  {-
   gameAction <- determineGameAction
   case gameAction of
     GameContinues -> mainLoop
@@ -170,7 +171,6 @@ mainLoop = do
       gsLocationSequence <~ (chooseLocationSequence =<< use gsCurrentLevel)
       gsTimerInited <~ gcurrentTicks
       mainLoop
--}
 
 main :: IO ()
 main = do
