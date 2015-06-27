@@ -8,6 +8,8 @@ import Wrench.Platform
 import Wrench.Time
 import Wrench.FloatType
 import Wrench.Color
+import Wrench.BitmapFont.Render
+import Wrench.BitmapFont.RenderResult
 import System.Random.Shuffle(shuffleM)
 import Wrench.Event
 import Control.Monad.Random
@@ -27,7 +29,7 @@ import Tic.CoordTransform
 import Tic.Location
 import Wrench.RenderPositionMode
 import Tic.GameState
-import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?))
+import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?),(&),(*~))
 import Data.List(tail,head)
 import Linear.V2
 
@@ -36,9 +38,9 @@ type InnerRectangle = Rectangle
 
 fitRectAspectPreserving :: OuterRectangle -> InnerRectangle -> Rectangle
 fitRectAspectPreserving outer inner =
-  if inner ^. rectangleDimensions . _x > inner ^. rectangleDimensions . _y
-  then fitRectAspectPreserving' (outer ^. rectangleDimensions) (inner ^. rectangleDimensions)
-  else fitRectAspectPreserving' (outer ^. rectangleDimensions . _yx) (inner ^. rectangleDimensions . _yx)
+  if inner ^. rectWidth > inner ^. rectHeight
+  then fitRectAspectPreserving' (outer ^. rectDimensions) (inner ^. rectDimensions)
+  else fitRectAspectPreserving' (outer ^. rectDimensions . _yx) (inner ^. rectDimensions . _yx)
   where 
     fitRectAspectPreserving' :: Point -> Point -> Rectangle
     fitRectAspectPreserving' outer' inner' = 
@@ -49,19 +51,19 @@ fitRectAspectPreserving outer inner =
             x = 0
             y = outer' ^. _y / 2 - height / 2
         in
-            rectangleFromOriginAndDim (V2 x y) (V2 width height)
+            rectFromOriginAndDim (V2 x y) (V2 width height)
 
 mapImageId :: SpriteIdentifier
 mapImageId = "map"
 
 originRectangle :: Wrench.Point.Point -> Rectangle
-originRectangle = rectangleFromPoints (V2 0 0)
+originRectangle = rectFromPoints (V2 0 0)
 
 fitMap :: OuterRectangle -> InnerRectangle -> Rectangle
 fitMap viewportRectangle mapSize = fitRectAspectPreserving viewportRectangle mapSize
 
 picturize :: Rectangle -> Picture
-picturize fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` (pictureSpriteResampled mapImageId RenderPositionTopLeft (fitRect ^. rectangleDimensions))
+picturize fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` (pictureSpriteResampled mapImageId RenderPositionTopLeft (fitRect ^. rectDimensions))
 
 type MouseCoord = Point
 type MapRectangle = Rectangle
@@ -87,10 +89,10 @@ chooseLocationSequence level = do
   return (take (locationsPerLevel level) shuffled)
 
 minScoreForLevel :: Level -> Score
-minScoreForLevel = undefined
+minScoreForLevel _ = 100000
 
 timerDurationForLevel :: Level -> TimeDelta
-timerDurationForLevel = undefined
+timerDurationForLevel l = fromSeconds 1
 
 locationsPerLevel :: Level -> Int
 locationsPerLevel = const 2
@@ -129,8 +131,11 @@ determineGameAction = do
 timeLeft :: (Monad m,MonadGame m,MonadState GameState m) => m TimeDelta
 timeLeft = do
   timerInited <- use gsTimerInited
+  currentLevel <- use gsCurrentLevel
+  let
+    levelEnd = timerInited `plusDuration` timerDurationForLevel currentLevel
   currentTicks <- gcurrentTicks
-  return (currentTicks `tickDelta` timerInited)
+  return (levelEnd `tickDelta` currentTicks)
 
 processClick :: (MonadGame m, MonadState GameState m, Functor m) => V2 FloatType -> Point -> m ()
 processClick imageSize clickPosition = do
@@ -142,6 +147,47 @@ processClick imageSize clickPosition = do
   gsTimerInited <~ gcurrentTicks
   return ()
 
+type RectangleSize = Point
+
+data Alignment = AlignLeftOrTop
+               | AlignCenter
+               | AlignRightOrBottom
+
+alignRectWithSize :: Rectangle -> RectangleSize -> (Alignment,Alignment) -> Rectangle
+alignRectWithSize outer size (ax,ay) =
+  let
+    alignDim left _ _ AlignLeftOrTop = left
+    alignDim left right sz AlignCenter = left + ((right - left)/2) - sz/2
+    alignDim _ right sz AlignRightOrBottom = right - sz
+    origin = V2 (alignDim (outer ^. rectLeft) (outer ^. rectRight) (size ^. _x) ax) (alignDim (outer ^. rectTop) (outer ^. rectBottom) (size ^. _y) ay)
+  in
+    rectFromOriginAndDim origin size
+
+centerRectWithSize :: Rectangle -> RectangleSize -> Rectangle
+centerRectWithSize outer rs = rectFromOriginAndDim (outer ^. rectLeftTop + outer ^. rectDimensions / 2 - rs / 2) rs
+
+centerRectVerticallyWithSize :: Rectangle -> RectangleSize -> Rectangle
+centerRectVerticallyWithSize outer rs = rectFromOriginAndDim (V2 (outer ^. rectLeftTop . _x) ((outer ^. rectLeftTop + outer ^. rectDimensions / 2 - rs / 2) ^. _y)) rs
+
+statusText :: MonadState GameState m => m Text
+statusText = do
+  currentLevel <- use gsCurrentLevel
+  currentScore <- use gsScore
+  let totalScore = minScoreForLevel currentLevel
+  return $ "L" <> pack (show currentLevel) <> " " <> pack (show currentScore) <> "/" <> pack (show totalScore) <> " "
+
+locationText :: (Functor m,MonadState GameState m) => m Text
+locationText = do
+  currentLoc <- head <$> use gsLocationSequence
+  return $ " " <> currentLoc ^. locName
+
+currentPercent :: (MonadGame m,MonadState GameState m) => m FloatType
+currentPercent = do
+  timerInited <- use gsTimerInited
+  currentLevel <- use gsCurrentLevel
+  currentTicks <- gcurrentTicks
+  return $ min 1 ((toSeconds (currentTicks `tickDelta` timerInited)) / (toSeconds (timerDurationForLevel currentLevel)))
+
 mainLoop :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
 mainLoop = do
   events <- gpollEvents
@@ -152,10 +198,22 @@ mainLoop = do
   let
     fitRect = fitMap viewport mapImage
     lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)) ^? _head
-  for_ lastClick (processClick (fitRect ^. rectangleDimensions))
+  for_ lastClick (processClick (fitRect ^. rectDimensions))
+  stText <- statusText
+  locText <- locationText
   let
-    gameStatePicture = colorsWhite `pictureInColor` (pictureText "hahaha")
-  grender (pictures [gameStatePicture,(picturize fitRect)])
+    hudRect = rectFromOriginAndDim (V2 0 0) (V2 (viewport ^. rectWidth) (viewport ^. rectHeight / 8))
+  locTextRendered <- grenderText "djvu" (-1) locText
+  stTextRendered <- grenderText "djvu" (-1) stText
+  barSize <- (^. rectDimensions) <$> glookupImageRectangleUnsafe "ui_bar"
+  percent <- currentPercent
+  let
+    barRect = alignRectWithSize hudRect barSize (AlignCenter,AlignCenter)
+    locTextPicture = ((alignRectWithSize barRect (locTextRendered ^. bfrrSize) (AlignLeftOrTop,AlignCenter)) ^. rectLeftTop) `pictureTranslated` (locTextRendered ^. bfrrPicture)
+    stTextPicture = ((alignRectWithSize barRect (stTextRendered ^. bfrrSize) (AlignRightOrBottom,AlignCenter)) ^. rectLeftTop) `pictureTranslated` (stTextRendered ^. bfrrPicture)
+    gameStateBarPicture = (barRect ^. rectLeftTop) `pictureTranslated` (pictureSpriteTopLeft "ui_bar")
+    gamePercentBar = (barRect ^. rectLeftTop) `pictureTranslated` (pictureSpriteResampled "ui_percent_bar" RenderPositionTopLeft ((barRect ^. rectDimensions) & _x *~ percent))
+  grender (pictures [picturize fitRect,gameStateBarPicture,gamePercentBar,locTextPicture,stTextPicture])
   mainLoop
   gameAction <- determineGameAction
   case gameAction of
