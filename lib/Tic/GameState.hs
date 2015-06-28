@@ -5,13 +5,14 @@ import Tic.Level
 import Tic.Location
 import Tic.Score
 import Wrench.Time
-import Control.Lens(makeLenses)
+import Control.Lens(makeClassy)
 
 data GameState = GameState {
     _gsCurrentLevel :: Level
   , _gsTimerInited :: TimeTicks
   , _gsLocationSequence :: [Location]
-  , _gsScore :: Score
+  , _gsLevelScore :: Score
+  , _gsTotalScore :: Score
   }
 
-$(makeLenses ''GameState)
+$(makeClassy ''GameState)

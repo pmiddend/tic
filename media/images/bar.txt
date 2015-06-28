@@ -1,2 +1,5 @@
 ui_bar=0,0,475,34
 ui_percent_bar=0,34,475,68
+ui_small_bar=0,68,240,96
+ui_mouse_pin=242,69,276,127
+ui_correct_pin=278,69,312,127

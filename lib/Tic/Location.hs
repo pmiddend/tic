@@ -9,7 +9,7 @@ import Control.Lens(makeLenses)
 data Location = Location {
     _locName :: Text
   , _locCoordinate :: Coordinate FloatType
-  }
+  } deriving(Show)
 
 $(makeLenses ''Location)
 
