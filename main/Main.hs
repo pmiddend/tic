@@ -8,6 +8,7 @@ import Wrench.Point
 import Wrench.Platform
 import Wrench.Time
 import Wrench.FloatType
+import Wrench.Keysym(Keysym(Space))
 import Wrench.Color
 import Wrench.BitmapFont.Render
 import Wrench.BitmapFont.RenderResult
@@ -22,14 +23,18 @@ import Wrench.Rectangle
 import Wrench.CommonGeometry
 import Data.Maybe
 import Control.Monad.State.Strict(MonadState,execStateT)
-import Tic.Coordinate
+import Tic.ImageCoord
+import Tic.ViewportCoord
+import Tic.GeoCoord
+import Tic.CoordTransform
+import Tic.LocationSelectionResult
 import Tic.Level
 import Tic.Score
 import Tic.CoordTransform
 import Tic.Location
 import Wrench.RenderPositionMode
 import Tic.GameState
-import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?),(&),(*~),(.=),(<+=),view)
+import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?),(&),(*~),(.=),(<+=),view,from,Iso')
 import Data.List(tail,head)
 import Linear.V2
 
@@ -68,18 +73,20 @@ mapPicture fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` pictureSpriteR
 type MouseCoord = Point
 type MapRectangle = Rectangle
 
-toImageCoord :: MapRectangle -> Point -> Maybe Point
+{-
+toImageCoord :: MapRectangle -> ViewportCoord FloatType -> Maybe (ImageCoord FloatType)
 toImageCoord image mouse
-  | pointInRectangle mouse image = Just (mouse - (image ^. rectLeftTop))
+  | pointInRectangle mouse (image ^. viewportToVector) = Just (mouse - (image ^. rectLeftTop))
   | otherwise = Nothing
+-}
 
 levelDatabase :: [[Location]]
 levelDatabase = [
-    [ Location "Hannover" (Coordinate 52.518611 13.408333)
-    , Location "Osnabrück" (Coordinate 52.278889 8.043056)
+    [ Location "Hannover" (GeoCoord 52.518611 13.408333)
+    , Location "Osnabrück" (GeoCoord 52.278889 8.043056)
     ]
-  , [ Location "Belm" (Coordinate 52.3 8.133333)
-    , Location "Mali" (Coordinate 17.0 4.366667)
+  , [ Location "Belm" (GeoCoord 52.3 8.133333)
+    , Location "Mali" (GeoCoord 17.0 4.366667)
     ]
   ]
 
@@ -108,7 +115,7 @@ distanceAndTimeToScore distance _ =
   in
     floor distScore
 
-geoLocationDistance :: Coordinate FloatType -> Coordinate FloatType -> DistanceKilometers
+geoLocationDistance :: GeoCoord FloatType -> GeoCoord FloatType -> DistanceKilometers
 geoLocationDistance = distanceHaversine
 
 pixelDistance :: Point -> Point -> FloatType
@@ -162,10 +169,6 @@ currentPercentCapped = do
   p <- currentPercent
   return (min 1 p)
 
-data LocationSelectionResult = LocationClicked Point
-                             | LocationTimedOut
-                             deriving(Show)
-
 timedOut :: (HasGameState s,MonadGame m,MonadState s m) => m Bool
 timedOut = do
   p <- currentPercent
@@ -180,7 +183,7 @@ hudPicture texts = do
     localRenderText = grenderText "djvu" (-1)
   leftText <- forM (texts ^. hpiLeftText) localRenderText 
   centerText <- forM (texts ^. hpiCenterText) localRenderText
-  rightText <- forM (texts ^. hpiCenterText) localRenderText
+  rightText <- forM (texts ^. hpiRightText) localRenderText
   barSize <- view rectDimensions <$> glookupImageRectangleUnsafe "ui_bar"
   let
     barRect = alignRectWithSize hudRect barSize (AlignCenter,AlignCenter)
@@ -202,10 +205,10 @@ selectLocation location = do
   mapImage <- glookupImageRectangleUnsafe mapImageId
   let
     fitRect = fitMap viewport mapImage
-    lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (toImageCoord fitRect)) ^? _head
+    lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (^. from viewportToVector . viewportCoordToImageCoord fitRect)) ^? _head
   case lastClick of
     Just clickPosition ->
-      return (LocationClicked (clickPosition / fitRect ^. rectDimensions))
+      return (LocationClicked (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions)))
     Nothing -> do
       timeout <- timedOut
       if timeout
@@ -218,15 +221,21 @@ selectLocation location = do
           grender (mapPicture fitRect <> hudPic)
           selectLocation location
 
+mouseButtonClicked :: Traversable t => t Event -> Bool
 mouseButtonClicked events = isJust ((events ^.. traverse . _MouseButton . mouseButtonMovement . filtered (== ButtonDown)) ^? _head)
 
+spaceKeyPressed :: Traversable t => t Event -> Bool
+spaceKeyPressed events = isJust ((events ^.. traverse . _Keyboard . keySym . filtered (== Space)) ^? _head)
+
 -- | Show a confirmation of the last score (if the user clicked something, anyway)
-confirmScore :: (HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe Location -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
+confirmScore :: (HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord FloatType) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
 confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
   events <- gpollEvents
   gupdateTicks 1.0
   gupdateKeydowns events
-  unless (mouseButtonClicked events) $ do
+  --unless (spaceKeyPressed events) $ do
+--  unless False $ do
+  forever $ do
     viewport <- originRectangle <$> gviewportSize
     mapImage <- glookupImageRectangleUnsafe mapImageId
     let
@@ -236,10 +245,16 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
     mousePinImage <- glookupImageRectangleUnsafe mousePinId
     correctPinImage <- glookupImageRectangleUnsafe correctPinId
     let
-      correctLocationPixels = coordinateToPixel (correctLocation ^. locCoordinate) (fitRect ^. rectDimensions)
-      correctPinPicture = correctLocationPixels `pictureTranslated` pictureSpriteTopLeft correctPinId
-    hudPic <- hudPicture HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press left mouse to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
-    grender (mapPicture fitRect <> hudPic)
+      geoCoordToViewportCoord :: Iso' (GeoCoord FloatType) (ViewportCoord FloatType)
+      geoCoordToViewportCoord = geoCoordToImageCoord (fitRect ^. rectDimensions) . imageCoordToViewportCoord (fitRect ^. rectLeftTop)
+      correctLocationPixels :: ViewportCoord FloatType
+      correctLocationPixels = correctLocation ^. locCoord . geoCoordToViewportCoord
+      correctPinPicture = ((correctLocationPixels ^. viewportToVector) - V2 (correctPinImage ^. rectDimensions . _x / 2) (correctPinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft correctPinId
+      clickedLocationPixels :: Maybe (ViewportCoord FloatType)
+      clickedLocationPixels = (^. geoCoordToViewportCoord) <$> clickedLocation
+      clickedPinPicture = foldMap (\clickedLocation' -> ((clickedLocation' ^. viewportToVector) - V2 (mousePinImage ^. rectDimensions . _x / 2) (mousePinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft mousePinId) clickedLocationPixels
+    hudPic <- hudPicture HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press space to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
+    grender (mapPicture fitRect <> clickedPinPicture <> correctPinPicture <> hudPic)
     
 
 data GameoverConfirmResult = WantsAnotherRound
@@ -249,39 +264,13 @@ data GameoverConfirmResult = WantsAnotherRound
 confirmGameover :: m GameoverConfirmResult
 confirmGameover = undefined
 
-{-
-proceedAfterClick :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
-proceedAfterClick = do
-  gsLocationSequence %= tail
-  currentLocations <- use gsLocationSequence
-  putStrLn $ "Current locations: " <> pack (show currentLocations)
-  if null currentLocations
-  then do
-    putStrLn "No more locations left, determining score"
-    currentScore <- use gsScore
-    currentLevel <- use gsCurrentLevel
-    if currentScore < minScoreForLevel currentLevel
-    then do
-      putStrLn "Game over"
-      gameOverLoop
-    else do
-      putStrLn "Next level!"
-      newCurrentLevel <- (gsCurrentLevel <+= 1)
-      gsLocationSequence <~ chooseLocationSequence newCurrentLevel
-      mainLoop
-  else do
-    gsTimerInited <~ gcurrentTicks
-    mainLoop
--}
-
 -- | Calculate distance, increase current level score and total score accordingly. Return distance/score
 increaseScore :: (HasGameState s,MonadState s m) =>  LocationSelectionResult -> Location -> m (Maybe DistanceKilometers,Score)
 increaseScore locationSelection location =
   case locationSelection of
     LocationClicked p -> do
       let
-        otherCoord = pixelToCoordinate (V2 1 1) p
-        coordDistanceKm = geoLocationDistance otherCoord (toRadians <$> location ^. locCoordinate)
+        coordDistanceKm = geoLocationDistance p ((^. toRadians) <$> location ^. locCoord)
         score = distanceAndTimeToScore coordDistanceKm (error "time not necessary for score yet")
       gsTotalScore += score
       gsLevelScore += score
@@ -330,7 +319,8 @@ mainLoop = do
   locationSelection <- selectLocation currentLocation
   putStrLn $ "Location selection done, increasing score: " <> packShow locationSelection
   (distance,score) <- increaseScore locationSelection currentLocation
-  confirmScore currentLocation locationSelection score distance Nothing
+  putStrLn "Confirming score"
+  confirmScore currentLocation (locationSelection ^? _LocationClicked) score distance Nothing
   remainingLocationsInLevel <- use gsLocationSequence
   if null remainingLocationsInLevel
   then do
@@ -339,6 +329,7 @@ mainLoop = do
     if levelSuccessful
     then do
       putStrLn "Level is succesful, advancing to next level"
+      gsTimerInited <~ gcurrentTicks
       advanceLevel
       mainLoop
     else do
@@ -346,31 +337,8 @@ mainLoop = do
       handleGameover
   else do
     putStrLn "There are locations left in this level, continuing"
+    gsTimerInited <~ gcurrentTicks
     mainLoop
- 
-{-
-  case locationSelection of
-    LocationTimedOut -> do
-      currentLocation <- head <$> use gsLocationSequence
-      showTimeoutDialog currentLocation
-      putStrLn "Timed out"
-      proceedAfterClick
-    ChooseLoopClicked clickPosition -> do
-      currentLocation <- head <$> use gsLocationSequence
-      viewport <- originRectangle <$> gviewportSize
-      mapImage <- fromJust <$> (glookupImageRectangle mapImageId)
-      let
-          fitRect = fitMap viewport mapImage
-          dist = pixelDistance (coordinateToPixel (currentLocation ^. locCoordinate) (fitRect ^. rectDimensions)) clickPosition
-      tl <- timeLeft
-      let scoreIncrease = distanceAndTimeToPoints dist tl
-      gsScore += distanceAndTimeToPoints dist tl
-      showSuccessDialog clickPosition currentLocation scoreIncrease
-      proceedAfterClick
-
-gameOverLoop :: (Monad m,Applicative m,Functor m,MonadIO m,MonadGame m,MonadState GameState m,MonadRandom m) => m ()
-gameOverLoop = putStrLn "Game over"
--}
 
 main :: IO ()
 main =
