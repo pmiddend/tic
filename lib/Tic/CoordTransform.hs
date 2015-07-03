@@ -1,4 +1,5 @@
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Tic.CoordTransform where
 
 import ClassyPrelude 
@@ -11,10 +12,9 @@ import Wrench.CommonGeometry
 import Linear.V2
 import Control.Lens((^.),from,iso,Iso',to,Getter)
 import Numeric.Lens
---import Data.Profunctor
 
 geoToVector :: Iso' (GeoCoord a) (V2 a)
-geoToVector = iso (\c -> V2 (c ^. latitude) (c ^. longitude)) (\v -> GeoCoord (v ^. _x) (v ^. _y))
+geoToVector = iso (\c -> V2 (c ^. longitude) (c ^. latitude)) (\v -> GeoCoord (v ^. _y) (v ^. _x))
 
 imageToVector :: Iso' (ImageCoord a) (V2 a)
 imageToVector = iso (\c -> V2 (c ^. imx) (c ^. imy)) (\v -> ImageCoord (v ^. _x) (v ^. _y))
@@ -38,10 +38,19 @@ distanceHaversine ca cb =
   in
     r * c
 
-geoCoordToImageCoord :: (Fractional a,Num a,Eq a) => V2 a -> Iso' (GeoCoord a) (ImageCoord a)
-geoCoordToImageCoord imageSize = geoToVector . dividing (V2 360 180) . multiplying imageSize . adding (imageSize / 2) . from imageToVector
+geoVectorYNormalize :: (Eq a,Floating a) => Iso' a a
+geoVectorYNormalize = dividing 180 . negated . adding 0.5
 
-imageCoordToGeoCoord :: (Fractional a,Num a,Eq a) => V2 a -> Iso' (ImageCoord a) (GeoCoord a) 
+vectorIso :: Iso' a a -> Iso' a a -> Iso' (V2 a) (V2 a)
+vectorIso xlens ylens = iso (\(V2 a b) -> V2 (a ^. xlens) (b ^. ylens)) (\(V2 a b) -> V2 (a ^. from xlens) (b ^. from ylens))
+
+geoVectorNormalize :: forall a.Fractional a => Eq a => Floating a => Iso' (V2 a) (V2 a)
+geoVectorNormalize = vectorIso (dividing 360 . adding 0.5) geoVectorYNormalize
+
+geoCoordToImageCoord :: (Floating a,Fractional a,Num a,Eq a) => V2 a -> Iso' (GeoCoord a) (ImageCoord a)
+geoCoordToImageCoord imageSize = geoToVector . geoVectorNormalize . multiplying imageSize . from imageToVector
+
+imageCoordToGeoCoord :: (Floating a,Fractional a,Num a,Eq a) => V2 a -> Iso' (ImageCoord a) (GeoCoord a) 
 imageCoordToGeoCoord imageSize = from (geoCoordToImageCoord imageSize)
 
 imageCoordToViewportCoord :: Num a => V2 a -> Iso' (ImageCoord a) (ViewportCoord a) 
@@ -52,14 +61,3 @@ viewportCoordToImageCoord :: Rectangle -> Getter (ViewportCoord FloatType) (Mayb
 viewportCoordToImageCoord imageRectangle = to helper
   where helper vc | pointInRectangle (vc ^. viewportToVector) imageRectangle = Just ((vc ^. viewportToVector - (imageRectangle ^. rectLeftTop)) ^. from imageToVector)                                                  
                   | otherwise = Nothing
-
-{-                                                         
-coordinateToPixelLens :: (Profunctor p, Functor f, Fractional a, Eq a) => V2 a -> p (V2 a) (f (V2 a)) -> p (Coord a) (f (Coord a))
-coordinateToPixelLens imageSize = toVector . dividing (V2 360 180) . multiplying imageSize . adding (imageSize / 2)
-
-coordinateToPixel :: (Fractional a,Eq a) => Coord a -> V2 a -> V2 a
-coordinateToPixel coord imageSize = coord ^. (coordinateToPixelLens imageSize)
-
-pixelToCoord :: (Fractional a,Eq a) => V2 a -> V2 a -> Coord a
-pixelToCoord coord imageSize = coord ^. from (coordinateToPixelLens imageSize)
--}

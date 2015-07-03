@@ -196,7 +196,7 @@ hudPicture texts = do
   return (gameStateBarPicture <> gamePercentBar <> leftTextPicture <> centerTextPicture <> rightTextPicture)
 
 -- | Let the user click the map or do nothing
-selectLocation :: (HasGameState s,MonadGame m,MonadState s m,Monad m,Functor m) => Location -> m LocationSelectionResult
+selectLocation :: (MonadIO m,HasGameState s,MonadGame m,MonadState s m,Monad m,Functor m) => Location -> m LocationSelectionResult
 selectLocation location = do
   events <- gpollEvents
   gupdateTicks 1.0
@@ -207,7 +207,9 @@ selectLocation location = do
     fitRect = fitMap viewport mapImage
     lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (^. from viewportToVector . viewportCoordToImageCoord fitRect)) ^? _head
   case lastClick of
-    Just clickPosition ->
+    Just clickPosition -> do
+      putStrLn $ "click position (image coord): " <> packShow clickPosition
+      putStrLn $ "geo position: " <> packShow (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions))
       return (LocationClicked (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions)))
     Nothing -> do
       timeout <- timedOut
@@ -228,7 +230,7 @@ spaceKeyPressed :: Traversable t => t Event -> Bool
 spaceKeyPressed events = isJust ((events ^.. traverse . _Keyboard . keySym . filtered (== Space)) ^? _head)
 
 -- | Show a confirmation of the last score (if the user clicked something, anyway)
-confirmScore :: (HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord FloatType) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
+confirmScore :: (MonadIO m,HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord FloatType) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
 confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
   events <- gpollEvents
   gupdateTicks 1.0
