@@ -10,31 +10,25 @@ import Wrench.Time
 import Wrench.FloatType
 import Wrench.Keysym(Keysym(Space))
 import Wrench.Color
-import Wrench.BitmapFont.Render
 import Wrench.BitmapFont.RenderResult
 import System.Random.Shuffle(shuffleM)
 import Control.Monad.Random
 import Wrench.Event
-import Data.Foldable(for_)
 import Wrench.Picture
 import Wrench.MouseButtonMovement
 import ClassyPrelude hiding(head)
 import Wrench.Rectangle
-import Wrench.CommonGeometry
-import Data.Maybe
 import Control.Monad.State.Strict(MonadState,execStateT)
-import Tic.ImageCoord
 import Tic.ViewportCoord
 import Tic.GeoCoord
 import Tic.CoordTransform
 import Tic.LocationSelectionResult
 import Tic.Level
 import Tic.Score
-import Tic.CoordTransform
 import Tic.Location
 import Wrench.RenderPositionMode
 import Tic.GameState
-import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,folded,to,singular,_Just,taking,(^?),(&),(*~),(.=),(<+=),view,from,Iso')
+import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,(^?),(&),(*~),view,from,Iso',has)
 import Data.List(tail,head)
 import Linear.V2
 
@@ -196,7 +190,7 @@ hudPicture texts = do
   return (gameStateBarPicture <> gamePercentBar <> leftTextPicture <> centerTextPicture <> rightTextPicture)
 
 -- | Let the user click the map or do nothing
-selectLocation :: (MonadIO m,HasGameState s,MonadGame m,MonadState s m,Monad m,Functor m) => Location -> m LocationSelectionResult
+selectLocation :: (HasGameState s,MonadGame m,MonadState s m,Monad m,Functor m) => Location -> m LocationSelectionResult
 selectLocation location = do
   events <- gpollEvents
   gupdateTicks 1.0
@@ -207,9 +201,7 @@ selectLocation location = do
     fitRect = fitMap viewport mapImage
     lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (^. from viewportToVector . viewportCoordToImageCoord fitRect)) ^? _head
   case lastClick of
-    Just clickPosition -> do
-      putStrLn $ "click position (image coord): " <> packShow clickPosition
-      putStrLn $ "geo position: " <> packShow (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions))
+    Just clickPosition ->
       return (LocationClicked (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions)))
     Nothing -> do
       timeout <- timedOut
@@ -227,7 +219,8 @@ mouseButtonClicked :: Traversable t => t Event -> Bool
 mouseButtonClicked events = isJust ((events ^.. traverse . _MouseButton . mouseButtonMovement . filtered (== ButtonDown)) ^? _head)
 
 spaceKeyPressed :: Traversable t => t Event -> Bool
-spaceKeyPressed events = isJust ((events ^.. traverse . _Keyboard . keySym . filtered (== Space)) ^? _head)
+--spaceKeyPressed events = has (events ^.. traverse . _Keyboard . keySym . filtered (== Space))
+spaceKeyPressed events = has (traverse . _Keyboard . keySym . filtered (== Space)) events
 
 -- | Show a confirmation of the last score (if the user clicked something, anyway)
 confirmScore :: (MonadIO m,HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord FloatType) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
@@ -235,9 +228,9 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
   events <- gpollEvents
   gupdateTicks 1.0
   gupdateKeydowns events
-  --unless (spaceKeyPressed events) $ do
+  unless (spaceKeyPressed events) $ do
 --  unless False $ do
-  forever $ do
+--  forever $ do
     viewport <- originRectangle <$> gviewportSize
     mapImage <- glookupImageRectangleUnsafe mapImageId
     let
