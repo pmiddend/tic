@@ -4,6 +4,7 @@ module Main where
 import Tic.HudPictureInput
 import Wrench.MonadGame
 import Wrench.SpriteIdentifier
+import Wrench.RenderBlockMode
 import Wrench.Point
 import Wrench.Platform
 import Wrench.Time
@@ -337,7 +338,7 @@ mainLoop = do
 
 main :: IO ()
 main =
-  runGame "media" "tic 0.1" DynamicWindowSize (Just colorsBlack) $ do
+  runGame "media" "tic 0.1" DynamicWindowSize (Just colorsBlack) (RenderAndWait 30) $ do
     initialLocations <- chooseLocationSequence 0
     currentTicks <- gcurrentTicks
     let
