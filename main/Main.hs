@@ -22,6 +22,7 @@ import Wrench.Rectangle
 import Control.Monad.State.Strict(MonadState,execStateT)
 import Tic.ViewportCoord
 import Tic.GeoCoord
+import Numeric.Lens
 import Tic.CoordTransform
 import Tic.LocationSelectionResult
 import Tic.Level
@@ -62,8 +63,8 @@ originRectangle = rectFromPoints (V2 0 0)
 fitMap :: OuterRectangle -> InnerRectangle -> Rectangle
 fitMap = fitRectAspectPreserving
 
-mapPicture :: Rectangle -> Picture
-mapPicture fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` pictureSpriteResampled mapImageId RenderPositionTopLeft (fitRect ^. rectDimensions)
+mapPic :: Rectangle -> Picture
+mapPic fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` pictureSpriteResampled mapImageId RenderPositionTopLeft (fitRect ^. rectDimensions)
 
 type MouseCoord = Point
 type MapRectangle = Rectangle
@@ -169,13 +170,15 @@ timedOut = do
   p <- currentPercent
   return (p >= 1)
 
+localRenderText :: MonadGame m => Text -> m RenderResult
+localRenderText = grenderText "djvu" (-1)
+
 -- | Generate HUD for location selection
-hudPicture :: (HasGameState s,Monad m,MonadState s m,MonadGame m,Functor m) => HudPictureInput -> m Picture
-hudPicture texts = do
+hudPic :: (HasGameState s,Monad m,MonadState s m,MonadGame m,Functor m) => HudPictureInput -> m Picture
+hudPic texts = do
   viewport <- originRectangle <$> gviewportSize
   let
     hudRect = rectFromOriginAndDim (V2 0 0) (V2 (viewport ^. rectWidth) (viewport ^. rectHeight / 8))
-    localRenderText = grenderText "djvu" (-1)
   leftText <- forM (texts ^. hpiLeftText) localRenderText 
   centerText <- forM (texts ^. hpiCenterText) localRenderText
   rightText <- forM (texts ^. hpiRightText) localRenderText
@@ -212,15 +215,14 @@ selectLocation location = do
           stText <- statusText
           locText <- locationText location
           curPercent <- currentPercentCapped
-          hudPic <- hudPicture HudPictureInput{_hpiLeftText=Just locText,_hpiCenterText=Nothing,_hpiRightText=Just stText,_hpiPercentFilled=Just curPercent}
-          grender (mapPicture fitRect <> hudPic)
+          hudPic <- hudPic HudPictureInput{_hpiLeftText=Just locText,_hpiCenterText=Nothing,_hpiRightText=Just stText,_hpiPercentFilled=Just curPercent}
+          grender (mapPic fitRect <> hudPic)
           selectLocation location
 
 mouseButtonClicked :: Traversable t => t Event -> Bool
 mouseButtonClicked events = isJust ((events ^.. traverse . _MouseButton . mouseButtonMovement . filtered (== ButtonDown)) ^? _head)
 
 spaceKeyPressed :: Traversable t => t Event -> Bool
---spaceKeyPressed events = has (events ^.. traverse . _Keyboard . keySym . filtered (== Space))
 spaceKeyPressed events = has (traverse . _Keyboard . keySym . filtered (== Space)) events
 
 -- | Show a confirmation of the last score (if the user clicked something, anyway)
@@ -230,28 +232,32 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
   gupdateTicks 1.0
   gupdateKeydowns events
   unless (spaceKeyPressed events) $ do
---  unless False $ do
---  forever $ do
     viewport <- originRectangle <$> gviewportSize
     mapImage <- glookupImageRectangleUnsafe mapImageId
     let
       fitRect = fitMap viewport mapImage
       mousePinId = "ui_mouse_pin"
       correctPinId = "ui_correct_pin"
+      smallBarId = "ui_small_bar"
     mousePinImage <- glookupImageRectangleUnsafe mousePinId
     correctPinImage <- glookupImageRectangleUnsafe correctPinId
+    smallBarImage <- glookupImageRectangleUnsafe smallBarId
     let
       geoCoordToViewportCoord :: Iso' (GeoCoord FloatType) (ViewportCoord FloatType)
       geoCoordToViewportCoord = geoCoordToImageCoord (fitRect ^. rectDimensions) . imageCoordToViewportCoord (fitRect ^. rectLeftTop)
       correctLocationPixels :: ViewportCoord FloatType
       correctLocationPixels = correctLocation ^. locCoord . geoCoordToViewportCoord
-      correctPinPicture = ((correctLocationPixels ^. viewportToVector) - V2 (correctPinImage ^. rectDimensions . _x / 2) (correctPinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft correctPinId
+      correctPinPic = ((correctLocationPixels ^. viewportToVector) - V2 (correctPinImage ^. rectDimensions . _x / 2) (correctPinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft correctPinId
       clickedLocationPixels :: Maybe (ViewportCoord FloatType)
       clickedLocationPixels = (^. geoCoordToViewportCoord) <$> clickedLocation
-      clickedPinPicture = foldMap (\clickedLocation' -> ((clickedLocation' ^. viewportToVector) - V2 (mousePinImage ^. rectDimensions . _x / 2) (mousePinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft mousePinId) clickedLocationPixels
-    hudPic <- hudPicture HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press space to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
-    grender (mapPicture fitRect <> clickedPinPicture <> correctPinPicture <> hudPic)
-    
+      clickedPinPic = foldMap (\clickedLocation' -> ((clickedLocation' ^. viewportToVector) - V2 (mousePinImage ^. rectDimensions . _x / 2) (mousePinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft mousePinId) clickedLocationPixels
+      scoreBoxOrigin = correctLocationPixels ^. viewportToVector . adding (V2 5 (-smallBarImage ^. rectDimensions . _y / 2))
+      scoreBoxPic = scoreBoxOrigin `pictureTranslated` pictureSpriteTopLeft smallBarId
+    scoreBoxText <- localRenderText (packShow score <> " points" <> maybe "" (\x -> ", " <> packShow (floor x) <> "km") maybeDistance)
+    let scoreBoxTextPic = scoreBoxOrigin `pictureTranslated` (scoreBoxText ^. bfrrPicture)
+    hudPic <- hudPic HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press space to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
+    grender (mapPic fitRect <> clickedPinPic <> correctPinPic <> hudPic <> scoreBoxPic <> scoreBoxTextPic)
+    confirmScore correctLocation clickedLocation score maybeDistance maybeTime 
 
 data GameoverConfirmResult = WantsAnotherRound
                            | WantsToQuit
