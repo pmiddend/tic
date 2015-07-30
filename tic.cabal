@@ -25,6 +25,7 @@ library
   exposed-modules:     Tic.CoordTransform
                      , Tic.ImageCoord
                      , Tic.GeoCoord
+                     , Tic.UnitType
                      , Tic.ViewportCoord
                      , Tic.Level
                      , Tic.LocationSelectionResult

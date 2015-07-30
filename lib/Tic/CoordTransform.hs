@@ -1,17 +1,16 @@
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Tic.CoordTransform where
 
-import ClassyPrelude 
-import Tic.GeoCoord
-import Tic.ImageCoord
-import Tic.ViewportCoord
-import Wrench.Rectangle
-import Wrench.FloatType
-import Wrench.CommonGeometry
-import Linear.V2
-import Control.Lens((^.),from,iso,Iso',to,Getter)
-import Numeric.Lens
+import           ClassyPrelude
+import           Control.Lens          (Getter, Iso', from, iso, to, (^.))
+import           Linear.V2
+import           Numeric.Lens
+import           Tic.GeoCoord
+import           Tic.ImageCoord
+import           Tic.ViewportCoord
+import           Wrench.CommonGeometry
+import           Wrench.Rectangle
 
 geoToVector :: Iso' (GeoCoord a) (V2 a)
 geoToVector = iso (\c -> V2 (c ^. longitude) (c ^. latitude)) (\v -> GeoCoord (v ^. _y) (v ^. _x))
@@ -50,14 +49,14 @@ geoVectorNormalize = vectorIso (dividing 360 . adding 0.5) geoVectorYNormalize
 geoCoordToImageCoord :: (Floating a,Fractional a,Num a,Eq a) => V2 a -> Iso' (GeoCoord a) (ImageCoord a)
 geoCoordToImageCoord imageSize = geoToVector . geoVectorNormalize . multiplying imageSize . from imageToVector
 
-imageCoordToGeoCoord :: (Floating a,Fractional a,Num a,Eq a) => V2 a -> Iso' (ImageCoord a) (GeoCoord a) 
+imageCoordToGeoCoord :: (Floating a,Fractional a,Num a,Eq a) => V2 a -> Iso' (ImageCoord a) (GeoCoord a)
 imageCoordToGeoCoord imageSize = from (geoCoordToImageCoord imageSize)
 
-imageCoordToViewportCoord :: Num a => V2 a -> Iso' (ImageCoord a) (ViewportCoord a) 
+imageCoordToViewportCoord :: Num a => V2 a -> Iso' (ImageCoord a) (ViewportCoord a)
 imageCoordToViewportCoord imageOrigin = imageToVector . adding imageOrigin . from viewportToVector
 
 --viewportCoordToImageCoord imageOrigin = from (imageCoordToViewportCoord imageOrigin)
-viewportCoordToImageCoord :: Rectangle -> Getter (ViewportCoord FloatType) (Maybe (ImageCoord FloatType))
+viewportCoordToImageCoord :: (Ord a,Num a) => Rectangle a -> Getter (ViewportCoord a) (Maybe (ImageCoord a))
 viewportCoordToImageCoord imageRectangle = to helper
-  where helper vc | pointInRectangle (vc ^. viewportToVector) imageRectangle = Just ((vc ^. viewportToVector - (imageRectangle ^. rectLeftTop)) ^. from imageToVector)                                                  
+  where helper vc | pointInRectangle (vc ^. viewportToVector) imageRectangle = Just ((vc ^. viewportToVector - (imageRectangle ^. rectLeftTop)) ^. from imageToVector)
                   | otherwise = Nothing

@@ -1,14 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Tic.Location where
 
-import Tic.GeoCoord
-import ClassyPrelude
-import Wrench.FloatType
-import Control.Lens(makeLenses)
+import           ClassyPrelude
+import           Control.Lens  (makeLenses)
+import           Tic.GeoCoord
+import           Tic.UnitType
 
 data Location = Location {
-    _locName :: Text
-  , _locCoord :: GeoCoord FloatType
+    _locName  :: Text
+  , _locCoord :: GeoCoord UnitType
   } deriving(Show)
 
 $(makeLenses ''Location)

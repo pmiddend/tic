@@ -1,13 +1,16 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import Tic.HudPictureInput
 import Wrench.MonadGame
 import Wrench.SpriteIdentifier
-import Wrench.Point
+import Wrench.MouseGrabMode
+import Wrench.RenderBlockMode
+import Wrench.WindowSize
 import Wrench.Platform
 import Wrench.Time
-import Wrench.FloatType
+import Tic.UnitType
 import Wrench.Keysym(Keysym(Space))
 import Wrench.Color
 import Wrench.BitmapFont.RenderResult
@@ -28,20 +31,20 @@ import Tic.Score
 import Tic.Location
 import Wrench.RenderPositionMode
 import Tic.GameState
-import Control.Lens((^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,(^?),(&),(*~),view,from,Iso',has)
+import Control.Lens(to,(^.),(^..),filtered,folding,ix,(^?!),use,(%=),(<~),(+=),_head,(^?),(&),(*~),view,from,Iso',has)
 import Data.List(tail,head)
 import Linear.V2
 
-type OuterRectangle = Rectangle
-type InnerRectangle = Rectangle
+type OuterRectangle a = Rectangle a
+type InnerRectangle a = Rectangle a
 
-fitRectAspectPreserving :: OuterRectangle -> InnerRectangle -> Rectangle
+fitRectAspectPreserving :: forall a. (Num a,Ord a,Fractional a) => OuterRectangle a -> InnerRectangle a -> Rectangle a
 fitRectAspectPreserving outer inner =
   if inner ^. rectWidth > inner ^. rectHeight
   then fitRectAspectPreserving' (outer ^. rectDimensions) (inner ^. rectDimensions)
   else fitRectAspectPreserving' (outer ^. rectDimensions . _yx) (inner ^. rectDimensions . _yx)
   where 
-    fitRectAspectPreserving' :: Point -> Point -> Rectangle
+    fitRectAspectPreserving' :: V2 a -> V2 a -> Rectangle a
     fitRectAspectPreserving' outer' inner' = 
         let
             width = outer' ^. _x
@@ -55,20 +58,20 @@ fitRectAspectPreserving outer inner =
 mapImageId :: SpriteIdentifier
 mapImageId = "map"
 
-originRectangle :: Wrench.Point.Point -> Rectangle
+originRectangle :: Num a => V2 a -> Rectangle a
 originRectangle = rectFromPoints (V2 0 0)
 
-fitMap :: OuterRectangle -> InnerRectangle -> Rectangle
+fitMap :: (Num a,Fractional a,Ord a) => OuterRectangle a -> InnerRectangle a -> Rectangle a
 fitMap = fitRectAspectPreserving
 
-mapPicture :: Rectangle -> Picture
+mapPicture :: Num a => Rectangle a -> Picture a a
 mapPicture fitRect = (fitRect ^. rectLeftTop) `pictureTranslated` pictureSpriteResampled mapImageId RenderPositionTopLeft (fitRect ^. rectDimensions)
 
-type MouseCoord = Point
-type MapRectangle = Rectangle
+type MouseCoord = V2 UnitType
+type MapRectangle = Rectangle UnitType
 
 {-
-toImageCoord :: MapRectangle -> ViewportCoord FloatType -> Maybe (ImageCoord FloatType)
+toImageCoord :: MapRectangle -> ViewportCoord UnitType -> Maybe (ImageCoord UnitType)
 toImageCoord image mouse
   | pointInRectangle mouse (image ^. viewportToVector) = Just (mouse - (image ^. rectLeftTop))
   | otherwise = Nothing
@@ -98,7 +101,7 @@ timerDurationForLevel _ = fromSeconds 10
 locationsPerLevel :: Level -> Int
 locationsPerLevel = const 2
 
-type DistanceKilometers = FloatType
+type DistanceKilometers = UnitType
 
 distanceAndTimeToScore :: DistanceKilometers -> TimeDelta -> Score
 distanceAndTimeToScore distance _ =
@@ -109,10 +112,10 @@ distanceAndTimeToScore distance _ =
   in
     floor distScore
 
-geoLocationDistance :: GeoCoord FloatType -> GeoCoord FloatType -> DistanceKilometers
+geoLocationDistance :: GeoCoord UnitType -> GeoCoord UnitType -> DistanceKilometers
 geoLocationDistance = distanceHaversine
 
-pixelDistance :: Point -> Point -> FloatType
+pixelDistance :: V2 UnitType -> V2 UnitType -> UnitType
 pixelDistance = error "pixel distance not implemented"
 
 timeLeft :: (Monad m,MonadGame m,MonadState GameState m) => m TimeDelta
@@ -124,17 +127,17 @@ timeLeft = do
   currentTicks <- gcurrentTicks
   return (levelEnd `tickDelta` currentTicks)
 
-type RectangleSize = Point
+type RectangleSize a = V2 a
 
 data Alignment = AlignLeftOrTop
                | AlignCenter
                | AlignRightOrBottom
 
-alignRectWithSize :: Rectangle -> RectangleSize -> (Alignment,Alignment) -> Rectangle
+alignRectWithSize :: Integral a => Rectangle a -> RectangleSize a -> (Alignment,Alignment) -> Rectangle a
 alignRectWithSize outer size (ax,ay) =
   let
     alignDim left _ _ AlignLeftOrTop = left
-    alignDim left right sz AlignCenter = left + ((right - left)/2) - sz/2
+    alignDim left right sz AlignCenter = left + ((right - left) `div` 2) - (sz `div` 2)
     alignDim _ right sz AlignRightOrBottom = right - sz
     origin = V2 (alignDim (outer ^. rectLeft) (outer ^. rectRight) (size ^. _x) ax) (alignDim (outer ^. rectTop) (outer ^. rectBottom) (size ^. _y) ay)
   in
@@ -151,14 +154,14 @@ locationText :: (HasGameState s,Functor m,MonadState s m) => Location -> m Text
 locationText location =
   return $ " " <> location ^. locName
 
-currentPercent :: (HasGameState s,MonadGame m,MonadState s m) => m FloatType
+currentPercent :: (HasGameState s,MonadGame m,MonadState s m) => m UnitType
 currentPercent = do
   timerInited <- use gsTimerInited
   currentLevel <- use gsCurrentLevel
   currentTicks <- gcurrentTicks
   return $ (toSeconds (currentTicks `tickDelta` timerInited)) / toSeconds (timerDurationForLevel currentLevel)
 
-currentPercentCapped :: (HasGameState s,MonadGame m,MonadState s m) => m FloatType
+currentPercentCapped :: (HasGameState s,MonadGame m,MonadState s m) => m UnitType
 currentPercentCapped = do
   p <- currentPercent
   return (min 1 p)
@@ -169,7 +172,7 @@ timedOut = do
   return (p >= 1)
 
 -- | Generate HUD for location selection
-hudPicture :: (HasGameState s,Monad m,MonadState s m,MonadGame m,Functor m) => HudPictureInput -> m Picture
+hudPicture :: (HasGameState s,Monad m,MonadState s m,MonadGame m,Functor m) => HudPictureInput float -> m (Picture a a)
 hudPicture texts = do
   viewport <- originRectangle <$> gviewportSize
   let
@@ -178,7 +181,7 @@ hudPicture texts = do
   leftText <- forM (texts ^. hpiLeftText) localRenderText 
   centerText <- forM (texts ^. hpiCenterText) localRenderText
   rightText <- forM (texts ^. hpiRightText) localRenderText
-  barSize <- view rectDimensions <$> glookupImageRectangleUnsafe "ui_bar"
+  barSize <- (view rectDimensions) <$> glookupImageRectangleUnsafe "ui_bar"
   let
     barRect = alignRectWithSize hudRect barSize (AlignCenter,AlignCenter)
     transformPicture (xa) = foldMap (\t -> (alignRectWithSize barRect (t ^. bfrrSize) (xa,AlignCenter) ^. rectLeftTop) `pictureTranslated` (t ^. bfrrPicture))
@@ -202,7 +205,7 @@ selectLocation location = do
     lastClick = (events ^.. traverse . _MouseButton . filtered ((== ButtonDown) . (^. mouseButtonMovement)) . mousePosition . folding (^. from viewportToVector . viewportCoordToImageCoord fitRect)) ^? _head
   case lastClick of
     Just clickPosition ->
-      return (LocationClicked (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions)))
+      return (LocationClicked (fromIntegral <$> (clickPosition ^. imageCoordToGeoCoord (fitRect ^. rectDimensions))))
     Nothing -> do
       timeout <- timedOut
       if timeout
@@ -223,7 +226,7 @@ spaceKeyPressed :: Traversable t => t Event -> Bool
 spaceKeyPressed events = has (traverse . _Keyboard . keySym . filtered (== Space)) events
 
 -- | Show a confirmation of the last score (if the user clicked something, anyway)
-confirmScore :: (MonadIO m,HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord FloatType) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
+confirmScore :: forall a s m.(MonadIO m,HasGameState s,Monad m,MonadGame m,Functor m,MonadState s m) => Location -> Maybe (GeoCoord a) -> Score -> Maybe DistanceKilometers -> Maybe TimeDelta -> m ()
 confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
   events <- gpollEvents
   gupdateTicks 1.0
@@ -240,12 +243,12 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
     mousePinImage <- glookupImageRectangleUnsafe mousePinId
     correctPinImage <- glookupImageRectangleUnsafe correctPinId
     let
-      geoCoordToViewportCoord :: Iso' (GeoCoord FloatType) (ViewportCoord FloatType)
+      geoCoordToViewportCoord :: Iso' (GeoCoord a) (ViewportCoord a)
       geoCoordToViewportCoord = geoCoordToImageCoord (fitRect ^. rectDimensions) . imageCoordToViewportCoord (fitRect ^. rectLeftTop)
-      correctLocationPixels :: ViewportCoord FloatType
+      correctLocationPixels :: ViewportCoord UnitType
       correctLocationPixels = correctLocation ^. locCoord . geoCoordToViewportCoord
       correctPinPicture = ((correctLocationPixels ^. viewportToVector) - V2 (correctPinImage ^. rectDimensions . _x / 2) (correctPinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft correctPinId
-      clickedLocationPixels :: Maybe (ViewportCoord FloatType)
+      clickedLocationPixels :: Maybe (ViewportCoord UnitType)
       clickedLocationPixels = (^. geoCoordToViewportCoord) <$> clickedLocation
       clickedPinPicture = foldMap (\clickedLocation' -> ((clickedLocation' ^. viewportToVector) - V2 (mousePinImage ^. rectDimensions . _x / 2) (mousePinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft mousePinId) clickedLocationPixels
     hudPic <- hudPicture HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press space to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
@@ -337,7 +340,7 @@ mainLoop = do
 
 main :: IO ()
 main =
-  runGame "media" "tic 0.1" DynamicWindowSize (Just colorsBlack) $ do
+  runGame "media" "tic 0.1" DynamicWindowSize MouseGrabNo (Just colorsBlack) (RenderAndWait 60) $ do
     initialLocations <- chooseLocationSequence 0
     currentTicks <- gcurrentTicks
     let
