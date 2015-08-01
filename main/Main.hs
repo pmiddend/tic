@@ -152,6 +152,9 @@ timedOut = do
   p <- currentPercent
   return (p >= 1)
 
+localRenderText :: Num unit => MonadGame m => Text -> m (RenderResult unit float)
+localRenderText = grenderText "djvu" (-1)
+
 -- | Generate HUD for location selection
 hudPicture :: (HasGameState s,Monad m,MonadState s m,MonadGame m,Functor m) => HudPictureInput UnitType -> m (Picture Int UnitType)
 hudPicture texts = do
@@ -229,6 +232,7 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
       geoCoordToViewportCoord = geoCoordToImageCoord (fitRect ^. rectDimensions) . imageCoordToViewportCoord (fitRect ^. rectLeftTop)
       correctLocationPixels :: ViewportCoord UnitType
       correctLocationPixels = correctLocation ^. locCoord . geoCoordToViewportCoord
+
       correctPinPicture = ((correctLocationPixels ^. viewportToVector) - V2 (correctPinImage ^. rectDimensions . _x / 2) (correctPinImage ^. rectDimensions . _y)) `pictureTranslated` pictureSpriteTopLeft correctPinId
       clickedLocationPixels :: Maybe (ViewportCoord UnitType)
       clickedLocationPixels = (^. geoCoordToViewportCoord) <$> clickedLocation
@@ -236,7 +240,6 @@ confirmScore correctLocation clickedLocation score maybeDistance maybeTime = do
     hudPic <- hudPicture HudPictureInput{_hpiLeftText=Nothing,_hpiCenterText=Just "Press space to continue",_hpiRightText=Nothing,_hpiPercentFilled=Nothing}
     grender (first floor (mapPicture fitRect) <> first floor clickedPinPicture <> first floor correctPinPicture <> hudPic)
   
-
 data GameoverConfirmResult = WantsAnotherRound
                            | WantsToQuit
 
