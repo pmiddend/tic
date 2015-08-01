@@ -1,13 +1,13 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TemplateHaskell    #-}
 module Tic.GeoCoord where
 
-import           Control.Lens (makeLenses)
-import ClassyPrelude
+import           ClassyPrelude
+import           Control.Lens  (makeLenses)
 
 data GeoCoord a = GeoCoord {
-    _latitude :: a
+    _latitude  :: a
   , _longitude :: a
   } deriving(Functor)
 

@@ -60,3 +60,26 @@ viewportCoordToImageCoord :: (Ord a,Num a) => Rectangle a -> Getter (ViewportCoo
 viewportCoordToImageCoord imageRectangle = to helper
   where helper vc | pointInRectangle (vc ^. viewportToVector) imageRectangle = Just ((vc ^. viewportToVector - (imageRectangle ^. rectLeftTop)) ^. from imageToVector)
                   | otherwise = Nothing
+
+type OuterRectangle a = Rectangle a
+type InnerRectangle a = Rectangle a
+
+fitRectAspectPreserving :: forall a. (Num a,Ord a,Fractional a) => OuterRectangle a -> InnerRectangle a -> Rectangle a
+fitRectAspectPreserving outer inner =
+  if inner ^. rectWidth > inner ^. rectHeight
+  then fitRectAspectPreserving' (outer ^. rectDimensions) (inner ^. rectDimensions)
+  else fitRectAspectPreserving' (outer ^. rectDimensions . _yx) (inner ^. rectDimensions . _yx)
+  where
+    fitRectAspectPreserving' :: V2 a -> V2 a -> Rectangle a
+    fitRectAspectPreserving' outer' inner' =
+        let
+            width = outer' ^. _x
+            smallerRatio = inner' ^. _y / inner' ^. _x
+            height = width * smallerRatio
+            x = 0
+            y = outer' ^. _y / 2 - height / 2
+        in
+            rectFromOriginAndDim (V2 x y) (V2 width height)
+
+originRectangle :: Num a => V2 a -> Rectangle a
+originRectangle = rectFromPoints (V2 0 0)

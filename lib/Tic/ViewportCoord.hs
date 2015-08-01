@@ -1,10 +1,10 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor      #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell    #-}
 module Tic.ViewportCoord where
 
-import Control.Lens(makeLenses)
-import ClassyPrelude
+import           ClassyPrelude
+import           Control.Lens  (makeLenses)
 
 data ViewportCoord a = ViewportCoord {
     _vpx :: a

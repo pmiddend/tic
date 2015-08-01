@@ -1,7 +1,8 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Tic.Score where
 
-import ClassyPrelude
+import           ClassyPrelude
 
-type Score = Int
+newtype Score = Score Int deriving(Integral,Real,Enum,Ord,Num,Eq,Show)
 
 

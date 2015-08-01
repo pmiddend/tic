@@ -1,5 +1,9 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Tic.Level where
 
-import ClassyPrelude
+import           ClassyPrelude
+import           Control.Lens  (makePrisms)
 
-type Level = Int
+newtype Level = Level Int deriving(Show)
+
+$(makePrisms ''Level)

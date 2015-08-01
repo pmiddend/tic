@@ -4,11 +4,10 @@ module Tic.Location where
 import           ClassyPrelude
 import           Control.Lens  (makeLenses)
 import           Tic.GeoCoord
-import           Tic.UnitType
 
-data Location = Location {
+data Location a = Location {
     _locName  :: Text
-  , _locCoord :: GeoCoord UnitType
+  , _locCoord :: GeoCoord a
   } deriving(Show)
 
 $(makeLenses ''Location)
